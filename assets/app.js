@@ -38,14 +38,16 @@
     if (!Array.isArray(App.data.mentor.log)) App.data.mentor.log = [];
     App.ver = (App.ver || 0) + 1;
   };
-  const save = () => { App.ver = (App.ver || 0) + 1; S.set(dataKey(App.uid), App.data); };
+  const save = () => { App.ver = (App.ver || 0) + 1; S.set(dataKey(App.uid), App.data); if (cloudOn() && App.uid) NK.Cloud.saveData(App.data); };
   NK.save = save;
   const users = () => S.get('nk_users', {});
-  const me = () => (App.uid ? users()[App.uid] : null);
-  if (App.uid && !users()[App.uid]) { App.uid = null; S.set('nk_session', null); }
+  const cloudOn = () => !!(NK.Cloud && NK.Cloud.enabled);
+  const me = () => (cloudOn() ? NK.Cloud.me() : (App.uid ? users()[App.uid] : null));
+  if (!cloudOn() && App.uid && !users()[App.uid]) { App.uid = null; S.set('nk_session', null); }
 
   /* ---------------- i18n ---------------- */
   const t = (k, vars) => {
+    if (cloudOn() && NK.I18N[App.lang] && NK.I18N[App.lang][k + '_cloud']) k = k + '_cloud';
     let s = (NK.I18N[App.lang] && NK.I18N[App.lang][k]) || NK.I18N.kz[k] || k;
     if (vars) Object.keys(vars).forEach(v => { s = s.split('{' + v + '}').join(vars[v]); });
     return s;
@@ -643,11 +645,13 @@
       <div class="auth-logo">${logoSvg()}</div>
       <h1 class="h1 sm">${esc(t(reg ? 'auth_reg_h' : 'auth_login_h'))}</h1>
       <form data-form="${reg ? 'register' : 'login'}" novalidate>
-        <label for="a-nick">${esc(t('auth_nick'))}</label><input id="a-nick" autocomplete="username" maxlength="30" required>
+        ${cloudOn() ? `<label for="a-email">${esc(t('auth_email'))}</label><input id="a-email" type="email" autocomplete="email" maxlength="120" required>` : ''}
+        ${!cloudOn() || reg ? `<label for="a-nick">${esc(t('auth_nick'))}</label><input id="a-nick" autocomplete="${cloudOn() ? 'nickname' : 'username'}" maxlength="30" required>` : ''}
         ${reg ? `<div class="two-in"><div><label for="a-grade">${esc(t('auth_grade'))}</label><select id="a-grade">${[9, 10, 11].map(g => `<option ${g === 10 ? 'selected' : ''}>${g}</option>`).join('')}<option value="-">—</option></select></div>
         <div><label for="a-role">${esc(t('auth_role'))}</label><select id="a-role"><option value="student">${esc(t('role_student'))}</option><option value="teacher">${esc(t('role_teacher'))}</option></select></div></div>
         <label for="a-school">${esc(t('auth_school'))}</label><input id="a-school" maxlength="60">` : ''}
-        <label for="a-pass">${esc(t('auth_pass'))}</label><input id="a-pass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required>
+        <label for="a-pass">${esc(t(cloudOn() ? 'auth_pass6' : 'auth_pass'))}</label><input id="a-pass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required>
+        ${cloudOn() && reg ? `<label class="consent"><input type="checkbox" id="a-consent"><span class="box">${icon('check')}</span><span><b>${esc(t('auth_consent'))}</b><small>${esc(t('auth_consent_d'))}</small></span></label>` : ''}
         <p class="err" id="a-err" role="alert"></p>
         <button class="btn btn-lime btn-lg full" type="submit">${esc(t(reg ? 'auth_submit_reg' : 'auth_submit_login'))}</button>
       </form>
@@ -662,7 +666,40 @@
     if (cur.results.length || Object.keys(cur.answers).length) return false;
     App.data = Object.assign(blank(), g); save(); S.del(dataKey(null)); return true;
   }
+  async function cloudAuth(mode) {
+    const C = NK.Cloud, err = $('#a-err'), btn = $('form[data-form] button[type=submit]');
+    const email = $('#a-email').value.trim(), pass = $('#a-pass').value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = t('auth_err_email'); return; }
+    if (pass.length < 6) { err.textContent = t('auth_err_pass6'); return; }
+    let nick = '';
+    if (mode === 'register') {
+      nick = $('#a-nick').value.trim();
+      if (nick.length < 2 || nick.length > 30) { err.textContent = t('auth_err_nick'); return; }
+      if (!$('#a-consent').checked) { err.textContent = t('auth_err_consent'); return; }
+    }
+    btn.disabled = true; err.textContent = ''; btn.textContent = t('cloud_wait');
+    try {
+      const guest = App.uid ? null : App.data;
+      if (mode === 'register') {
+        const r = await C.signUp({ email, password: pass, nickname: nick, grade: $('#a-grade').value, school: $('#a-school').value.trim(), role: $('#a-role').value });
+        if (r.needsConfirm) { err.textContent = ''; $('.auth form').innerHTML = `<p class="warn">${icon('mail')} ${esc(t('auth_confirm'))}</p>`; return; }
+      } else await C.signIn(email, pass);
+      App.uid = C.user.id;
+      const remote = await C.loadData();
+      const hasGuest = guest && (guest.results.length || Object.keys(guest.tests || {}).length || guest.favs.length);
+      if (remote) { S.set(dataKey(App.uid), remote); loadData(); }
+      else if (hasGuest && me().role !== 'teacher') { App.data = Object.assign(blank(), guest); save(); S.del(dataKey(null)); toast(t('auth_merged')); }
+      else { App.data = blank(); save(); }
+      App.testView = 'intro';
+      location.hash = me().role === 'teacher' ? 'teacher' : 'profile';
+    } catch (e) {
+      const m = String(e && e.message || '').toLowerCase();
+      err.textContent = m.includes('invalid login') ? t('auth_err_wrong') : m.includes('already') ? t('auth_err_exists_email') : t('cloud_err');
+      btn.disabled = false; btn.textContent = t(mode === 'register' ? 'auth_submit_reg' : 'auth_submit_login');
+    }
+  }
   function doAuth(mode) {
+    if (cloudOn()) return cloudAuth(mode);
     const nick = $('#a-nick').value.trim(), pass = $('#a-pass').value, err = $('#a-err');
     if (nick.length < 2 || nick.length > 30) { err.textContent = t('auth_err_nick'); return; }
     if (pass.length < 4) { err.textContent = t('auth_err_pass'); return; }
@@ -764,7 +801,7 @@
         break;
       case 'copy-rep': copyText($('#rep-txt')); break;
       case 'modal-close': closeModal(); break;
-      case 'logout': App.uid = null; S.set('nk_session', null); loadData(); App.testView = 'intro'; location.hash = 'home'; break;
+      case 'logout': (async () => { if (cloudOn()) { try { await NK.Cloud.flush(); } catch (err) { /* keep local copy */ } await NK.Cloud.signOut(); } App.uid = null; S.set('nk_session', null); loadData(); App.testView = 'intro'; location.hash = 'home'; render(); })(); break;
       default: if (NK.ACTIONS[act]) NK.ACTIONS[act](el, e);
     }
   });
@@ -803,10 +840,18 @@
   });
 
   /* ---------------- Exports for pages.js ---------------- */
-  NK.H = { $, $$, esc, icon, t, L, ring, bar, toast, modal, closeModal, users, me, favBtn, profCard, pname, catName, uniName, render, rerenderKeep, inFrame, S, dataKey, copyText, blank, loadData, isFav, logoSvg,
+  NK.H = { cloudOn, $, $$, esc, icon, t, L, ring, bar, toast, modal, closeModal, users, me, favBtn, profCard, pname, catName, uniName, render, rerenderKeep, inFrame, S, dataKey, copyText, blank, loadData, isFav, logoSvg,
     radarG: (keys, sc, label) => radar(sc, null, keys, label) };
   /* ---------------- Boot (called by pages.js after all modules are registered) ---------------- */
-  NK.boot = () => {
+  NK.boot = async () => {
+    if (cloudOn()) {
+      $('#view').innerHTML = `<section class="page"><div class="wrap center"><p class="muted">${esc(t('cloud_loading'))}</p></div></section>`;
+      try {
+        await NK.Cloud.init();
+        App.uid = NK.Cloud.user ? NK.Cloud.user.id : null;
+        if (App.uid) { const remote = await NK.Cloud.loadData(); if (remote) S.set(dataKey(App.uid), remote); }
+      } catch (e) { App.uid = NK.Cloud.user ? NK.Cloud.user.id : null; setTimeout(() => toast(t('cloud_err')), 500); }
+    }
     loadData();
     if (location.hash === '#test' && Object.keys(App.data.answers).length && answeredCount() < NK.QUESTIONS.length) App.testView = 'intro';
     renderFooter();

@@ -945,3 +945,6 @@ select option { background: var(--bg-2); }
 .ftr-l .ic { color: var(--lime); }
 @media (max-width: 1020px) { .stats.four { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .ftr-grid { grid-template-columns: 1fr; } }
+
+.auth label.consent, .pform label.consent { display: flex; margin: 10px 0 4px; padding: 0; font-weight: 400; color: var(--text); }
+.auth label.consent b { font-size: 13.5px; }

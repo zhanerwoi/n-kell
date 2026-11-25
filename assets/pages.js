@@ -566,11 +566,16 @@
   F['goal-edit'] = f => { const i = +f.dataset.i; const g = D().road.goals[i]; const v = $('#ge-' + i).value.trim(); if (g && v) { g.t = v; g.d = $('#ged-' + i).value; } ui().editGoal = null; NK.save(); H.rerenderKeep(); H.toast(t('toast_saved')); };
 
   /* ======================== ACCOUNT (profile) ======================== */
+  const CL = () => NK.Cloud;
+  const cloud = () => H.cloudOn();
+  const busy = async (fn) => { try { await fn(); } catch (e) { H.toast(t('cloud_err')); } H.rerenderKeep(); };
   P.profile = function () {
-    const u = H.me(), d = D(), groups = H.S.get('nk_groups', {});
-    const head = u ? `<div class="prof-h card"><span class="avatar lg">${esc(u.nick.slice(0, 1).toUpperCase())}</span><div><h1 class="h1 sm">${esc(u.nick)}</h1><p class="muted">${esc(t(u.role === 'teacher' ? 'role_teacher' : 'role_student'))}${u.grade && u.grade !== '-' ? ' · ' + esc(u.grade) + ' ' + esc(t('grade_word')) : ''}${u.school ? ' · ' + esc(u.school) : ''}</p></div><button class="btn btn-ghost btn-sm" data-act="logout">${icon('log-out')} ${esc(t('logout'))}</button></div>`
+    const u = H.me(), d = D();
+    let groupName = null, cons = d.consent || {};
+    if (cloud()) { const m = CL().membership; if (m) { groupName = m.name; cons = { status: m.share_status, agg: m.share_agg }; } }
+    else { const groups = H.S.get('nk_groups', {}); if (u && u.group && groups[u.group]) groupName = groups[u.group].name; }
+    const head = u ? `<div class="prof-h card"><span class="avatar lg">${esc(u.nick.slice(0, 1).toUpperCase())}</span><div><h1 class="h1 sm">${esc(u.nick)}</h1><p class="muted">${esc(t(u.role === 'teacher' ? 'role_teacher' : 'role_student'))}${u.grade && u.grade !== '-' ? ' · ' + esc(u.grade) + ' ' + esc(t('grade_word')) : ''}${u.school ? ' · ' + esc(u.school) : ''}</p>${u.email ? `<p class="tiny muted">${icon('mail')} ${esc(u.email)}</p>` : ''}</div><button class="btn btn-ghost btn-sm" data-act="logout">${icon('log-out')} ${esc(t('logout'))}</button></div>`
       : `<div class="warn">${icon('info')}<p>${esc(t('prof_guest'))}</p></div><div class="cta-row"><a href="#register" class="btn btn-lime">${esc(t('register'))}</a><a href="#login" class="btn btn-ghost">${esc(t('login'))}</a></div>`;
-    const cons = d.consent || {};
     return `<section class="page"><div class="wrap narrow-lg">
       <h1 class="h1">${esc(t('acct_h'))}</h1>${head}
       <div class="pstats"><a href="#tests" class="pstat card"><b>${testsDone()}/${NK.TESTS.length}</b><span>${esc(t('dash_tests'))}</span></a><a href="#me" class="pstat card"><b>${rec().P.riasec ? E.sortDims(rec().P.riasec.s).slice(0, 3).join('') : '—'}</b><span>${esc(t('res_code'))}</span></a><a href="#careers" class="pstat card"><b>${d.favs.length}</b><span>${esc(t('prof_favs'))}</span></a><a href="#roadmap" class="pstat card"><b>${roadProgress().pct}%</b><span>${esc(t('prof_road'))}</span></a><a href="#sim" class="pstat card"><b>${Object.keys(d.sims).length}</b><span>${esc(t('prof_sims'))}</span></a></div>
@@ -579,7 +584,7 @@
         <label for="p-school">${esc(t('auth_school'))}</label><input id="p-school" value="${esc(u.school || '')}" maxlength="60"><p class="tiny muted">${esc(t('acct_min'))}</p>
         <button class="btn btn-violet btn-sm" type="submit">${esc(t('prof_save'))}</button></form>` : ''}
       ${u && u.role !== 'teacher' ? `<div class="card"><h3>${icon('users')} ${esc(t('prof_group'))}</h3>
-        ${u.group && groups[u.group] ? `<p>${esc(t('prof_joined'))}: <b>${esc(groups[u.group].name)}</b> <code>${esc(u.group)}</code></p>
+        ${groupName ? `<p>${esc(t('prof_joined'))}: <b>${esc(groupName)}</b> <code>${esc(u.group)}</code></p>
           <label class="consent"><input type="checkbox" id="c-status" data-change="consent" data-k="status" ${cons.status ? 'checked' : ''}><span class="box">${icon('check')}</span><span><b>${esc(t('cons_status'))}</b><small>${esc(t('cons_status_d'))}</small></span></label>
           <label class="consent"><input type="checkbox" id="c-agg" data-change="consent" data-k="agg" ${cons.agg ? 'checked' : ''}><span class="box">${icon('check')}</span><span><b>${esc(t('cons_agg'))}</b><small>${esc(t('cons_agg_d'))}</small></span></label>
           <button class="btn btn-ghost btn-sm" data-act="group-leave2">${esc(t('prof_leave'))}</button>`
@@ -593,76 +598,140 @@
         ${ui().confirmDel ? `<button class="btn btn-danger btn-sm" data-act="del-confirm2">${esc(t('prof_delete_confirm'))}</button> <button class="btn btn-ghost btn-sm" data-act="del-cancel2">${esc(t('back'))}</button>` : `<button class="btn btn-ghost btn-sm" data-act="del-ask2">${esc(t('prof_delete'))}</button>`}</div>
     </div></section>`;
   };
-  F.profile2 = () => { const us = H.users(); const u = us[NK.App.uid]; const nick = $('#p-nick').value.trim(); if (nick.length >= 2) u.nick = nick; u.grade = $('#p-grade').value; u.school = $('#p-school').value.trim(); H.S.set('nk_users', us); H.rerenderKeep(); H.toast(t('prof_saved')); };
-  F.join2 = () => { const code = $('#j-code').value.trim().toUpperCase(); const gs = H.S.get('nk_groups', {}); if (!gs[code]) { $('#j-err').textContent = t('prof_bad_code'); return; } const us = H.users(); us[NK.App.uid].group = code; H.S.set('nk_users', us); D().consent = { status: $('#j-status').checked, agg: $('#j-agg').checked }; NK.save(); H.rerenderKeep(); H.toast(t('prof_joined') + ': ' + gs[code].name); };
-  C.consent = el => { const d = D(); d.consent = Object.assign({}, d.consent, { [el.dataset.k]: el.checked }); NK.save(); H.toast(t('toast_saved')); };
-  A['group-leave2'] = () => { const us = H.users(); delete us[NK.App.uid].group; H.S.set('nk_users', us); H.rerenderKeep(); };
+  F.profile2 = () => {
+    const nick = $('#p-nick').value.trim(), grade = $('#p-grade').value, school = $('#p-school').value.trim();
+    if (cloud()) return busy(async () => { await CL().updateProfile(Object.assign({ grade, school }, nick.length >= 2 ? { nickname: nick } : {})); await CL().syncMember(D()); H.toast(t('prof_saved')); });
+    const us = H.users(); const u = us[NK.App.uid]; if (nick.length >= 2) u.nick = nick; u.grade = grade; u.school = school; H.S.set('nk_users', us); H.rerenderKeep(); H.toast(t('prof_saved'));
+  };
+  F.join2 = () => {
+    const code = $('#j-code').value.trim().toUpperCase(), st = $('#j-status').checked, ag = $('#j-agg').checked;
+    if (cloud()) return (async () => {
+      try { const name = await CL().groupName(code); if (!name) { $('#j-err').textContent = t('prof_bad_code'); return; } await CL().joinGroup(code, st, ag, D()); H.toast(t('prof_joined') + ': ' + name); }
+      catch (e) { $('#j-err').textContent = t('cloud_err'); return; }
+      H.rerenderKeep();
+    })();
+    const gs = H.S.get('nk_groups', {}); if (!gs[code]) { $('#j-err').textContent = t('prof_bad_code'); return; }
+    const us = H.users(); us[NK.App.uid].group = code; H.S.set('nk_users', us); D().consent = { status: st, agg: ag }; NK.save(); H.rerenderKeep(); H.toast(t('prof_joined') + ': ' + gs[code].name);
+  };
+  C.consent = el => {
+    if (cloud()) return busy(async () => { await CL().setConsent(el.dataset.k, el.checked, D()); H.toast(t('toast_saved')); });
+    const d = D(); d.consent = Object.assign({}, d.consent, { [el.dataset.k]: el.checked }); NK.save(); H.toast(t('toast_saved'));
+  };
+  A['group-leave2'] = () => {
+    if (cloud()) return busy(() => CL().leaveGroup());
+    const us = H.users(); delete us[NK.App.uid].group; H.S.set('nk_users', us); H.rerenderKeep();
+  };
   A['del-ask2'] = () => { ui().confirmDel = true; H.rerenderKeep(); };
   A['del-cancel2'] = () => { ui().confirmDel = false; H.rerenderKeep(); };
-  A['del-confirm2'] = () => {
-    ui().confirmDel = false; H.S.del(H.dataKey(NK.App.uid));
-    if (NK.App.uid) { const us = H.users(); delete us[NK.App.uid]; H.S.set('nk_users', us); NK.App.uid = null; H.S.set('nk_session', null); }
+  A['del-confirm2'] = async () => {
+    ui().confirmDel = false;
+    if (cloud() && NK.App.uid) { try { await CL().deleteAccount(); } catch (e) { H.toast(t('cloud_err')); H.rerenderKeep(); return; } }
+    H.S.del(H.dataKey(NK.App.uid));
+    if (NK.App.uid && !cloud()) { const us = H.users(); delete us[NK.App.uid]; H.S.set('nk_users', us); }
+    NK.App.uid = null; H.S.set('nk_session', null);
     H.loadData(); NK.App.testView = 'intro'; H.toast(t('prof_deleted')); location.hash = 'home';
   };
 
   /* ======================== TEACHER DASHBOARD ======================== */
-  function groupStats(code) {
+  const R6 = ['R', 'I', 'A', 'S', 'E', 'C'];
+  /* Local mode: builds the same shape as the cloud group_overview() function. */
+  function localOverview(code) {
     const us = Object.values(H.users()).filter(u => u.group === code && u.role !== 'teacher');
     const rows = us.map(u => { const d = Object.assign(H.blank(), H.S.get(H.dataKey(u.id), {})); const c = d.consent || {}; return { u, d, status: !!c.status, agg: !!c.agg }; });
-    const testDone = {}; NK.TESTS.forEach(x => { testDone[x.id] = rows.filter(r => r.status && E.testResult(r.d, x.id)).length; });
-    const aggRows = rows.filter(r => r.agg);
-    const withR = aggRows.map(r => E.unifiedProfile(r.d).riasec).filter(Boolean);
-    const avg = {}; ['R', 'I', 'A', 'S', 'E', 'C'].forEach(k => { avg[k] = withR.length ? Math.round(withR.reduce((s, p) => s + (p.s[k] || 0), 0) / withR.length) : 0; });
-    const dom = {}; ['R', 'I', 'A', 'S', 'E', 'C'].forEach(k => { dom[k] = 0; }); withR.forEach(p => { dom[E.sortDims(p.s)[0]]++; });
-    const statusRows = rows.filter(r => r.status);
-    const anyDone = statusRows.filter(r => NK.TESTS.some(x => E.testResult(r.d, x.id)) || r.d.results.length).length;
-    const avgTests = statusRows.length ? (statusRows.reduce((s, r) => s + testsDone(r.d), 0) / statusRows.length).toFixed(1) : '0';
-    const simUsers = statusRows.filter(r => Object.keys(r.d.sims || {}).length).length;
-    return { rows, testDone, withR, avg, dom, anyDone, avgTests, simUsers, statusN: statusRows.length };
+    const members = rows.map(r => ({ nickname: r.u.nick, shared: r.status, tests: r.status ? NK.TESTS.filter(x => E.testResult(r.d, x.id)).map(x => x.id) : null, express: r.status ? !!r.d.results.length : null, sims: r.status ? Object.keys(r.d.sims || {}).length : null }));
+    const withR = rows.filter(r => r.agg).map(r => E.unifiedProfile(r.d).riasec).filter(Boolean);
+    const out = { members, agg_n: withR.length, riasec_avg: null, riasec_dominant: null };
+    if (withR.length >= 3) {
+      out.riasec_avg = {}; out.riasec_dominant = {};
+      R6.forEach(k => { out.riasec_avg[k] = Math.round(withR.reduce((s, p) => s + (p.s[k] || 0), 0) / withR.length); });
+      withR.forEach(p => { const top = R6.slice().sort((a, b) => (p.s[b] || 0) - (p.s[a] || 0) || a.localeCompare(b))[0]; out.riasec_dominant[top] = (out.riasec_dominant[top] || 0) + 1; });
+    }
+    return out;
+  }
+  function stats(ov) {
+    const shared = ov.members.filter(m => m.shared);
+    const testDone = {}; NK.TESTS.forEach(x => { testDone[x.id] = shared.filter(m => (m.tests || []).includes(x.id)).length; });
+    const anyDone = shared.filter(m => (m.tests || []).length || m.express).length;
+    const avgTests = shared.length ? (shared.reduce((s, m) => s + (m.tests || []).length, 0) / shared.length).toFixed(1) : '0';
+    const simUsers = shared.filter(m => m.sims > 0).length;
+    const dom = {}; R6.forEach(k => { dom[k] = (ov.riasec_dominant && ov.riasec_dominant[k]) || 0; });
+    return { members: ov.members, statusN: shared.length, testDone, anyDone, avgTests, simUsers, avg: ov.riasec_avg, dom, aggN: ov.agg_n };
+  }
+  function teacherGroups() {
+    if (!cloud()) return Object.values(H.S.get('nk_groups', {})).filter(g => g.owner === NK.App.uid);
+    if (CL().groups === null) { CL().listGroups().then(() => H.rerenderKeep(), () => H.toast(t('cloud_err'))); return null; }
+    return CL().groups;
+  }
+  function overviewOf(code) {
+    if (!cloud()) return localOverview(code);
+    const ov = CL().overview[code];
+    if (!ov) { CL().loadOverview(code).then(() => H.rerenderKeep(), () => H.toast(t('cloud_err'))); return null; }
+    return ov;
   }
   P.teacher = function () {
     const u = H.me();
     if (!u || u.role !== 'teacher') return `<section class="page"><div class="wrap narrow center empty"><div class="empty-ic">${icon('users')}</div><h1 class="h1">${esc(t('tch_h'))}</h1><p class="lead">${esc(t('tch_only'))}</p><div class="cta-row center"><a href="#register" class="btn btn-lime">${esc(t('register'))}</a><a href="#login" class="btn btn-ghost">${esc(t('login'))}</a></div></div></section>`;
-    const groups = Object.values(H.S.get('nk_groups', {})).filter(g => g.owner === u.id);
+    const groups = teacherGroups();
     return `<section class="page"><div class="wrap">
       <span class="eyebrow">${icon('users')} ${esc(t('role_teacher'))}</span><h1 class="h1">${esc(t('tch_h'))}</h1><p class="lead">${esc(t('tch_sub'))}</p>
       <div class="safe card">${icon('shield-check')}<div><h3>${esc(t('tch_priv_h'))}</h3><ul class="dl">${['tp_1', 'tp_2', 'tp_3', 'tp_4'].map(k => `<li>${esc(t(k))}</li>`).join('')}</ul></div></div>
       <form class="card inline-f" data-form="group"><h3>${icon('plus')} ${esc(t('tch_new'))}</h3><input id="g-name" required maxlength="40" placeholder="${esc(t('tch_name_ph'))}" aria-label="${esc(t('tch_new'))}"><button class="btn btn-lime btn-sm" type="submit">${esc(t('tch_create'))}</button></form>
-      ${groups.length ? groups.map(groupCard).join('') : `<div class="empty-s">${icon('users')}<p>${esc(t('tch_nogroups'))}</p></div>`}
+      ${groups === null ? `<p class="muted">${esc(t('cloud_loading'))}</p>` : groups.length ? groups.map(groupCard).join('') : `<div class="empty-s">${icon('users')}<p>${esc(t('tch_nogroups'))}</p></div>`}
     </div></section>`;
   };
   function groupCard(g) {
-    const st = groupStats(g.code); const n = st.rows.length; const roster = g.roster || [];
-    const joinedNicks = st.rows.map(r => r.u.nick.toLowerCase());
-    const pending = roster.filter(nk => !joinedNicks.includes(nk.toLowerCase()));
+    const ov = overviewOf(g.code);
+    const head = `<div class="sec-head"><div><h3>${esc(g.name)}</h3><p class="muted">${esc(t('tch_code'))}: <code class="gcode sel">${esc(g.code)}</code></p></div>
+        <div class="cta-row">${cloud() ? `<button class="btn btn-ghost btn-sm" data-act="tch-refresh" data-code="${g.code}">${icon('rotate-ccw')} ${esc(t('tch_refresh'))}</button>` : ''}<button class="btn btn-ghost btn-sm" data-act="csv2" data-code="${g.code}">${icon('download')} ${esc(t('tch_export'))}</button><button class="btn btn-ghost btn-sm" data-act="csv-copy2" data-code="${g.code}">${icon('copy')} ${esc(t('tch_copy_csv'))}</button></div></div>`;
+    if (!ov) return `<div class="card gcard">${head}<p class="muted">${esc(t('cloud_loading'))}</p></div>`;
+    const st = stats(ov); const n = st.members.length; const roster = g.roster || [];
+    const joined = st.members.map(m => m.nickname.toLowerCase());
+    const pending = roster.filter(nk => !joined.includes(nk.toLowerCase()));
     const maxDom = Math.max(1, ...Object.values(st.dom));
-    return `<div class="card gcard">
-      <div class="sec-head"><div><h3>${esc(g.name)}</h3><p class="muted">${esc(t('tch_code'))}: <code class="gcode sel">${esc(g.code)}</code></p></div>
-        <div class="cta-row"><button class="btn btn-ghost btn-sm" data-act="csv2" data-code="${g.code}">${icon('download')} ${esc(t('tch_export'))}</button><button class="btn btn-ghost btn-sm" data-act="csv-copy2" data-code="${g.code}">${icon('copy')} ${esc(t('tch_copy_csv'))}</button></div></div>
+    return `<div class="card gcard">${head}
       <div class="pstats four"><div class="pstat"><b>${n}</b><span>${esc(t('tch_members'))}</span></div><div class="pstat"><b>${st.anyDone}/${st.statusN}</b><span>${esc(t('tch_completed'))}</span></div><div class="pstat"><b>${st.avgTests}</b><span>${esc(t('tch_avgtests'))}</span></div><div class="pstat"><b>${st.simUsers}</b><span>${esc(t('tch_simusers'))}</span></div></div>
       <h4>${esc(t('tch_bytest'))}</h4><div class="tbars">${NK.TESTS.map(x => `<div class="bar-row"><div class="bar-lbl"><span>${esc(tName(x.id))}</span><b>${st.testDone[x.id]}/${st.statusN}</b></div><div class="bar"><i style="--w:${st.statusN ? Math.max(2, st.testDone[x.id] / st.statusN * 100) : 2}%"></i></div></div>`).join('')}</div>
-      ${st.withR.length >= 3 ? `<div class="res-grid"><div><h4>${esc(t('tch_dist'))}</h4>${['R', 'I', 'A', 'S', 'E', 'C'].map(k => sbar(t('k_' + k) + ' — ' + t('avg'), st.avg[k])).join('')}</div>
-        <div><h4>${esc(t('tch_dom'))}</h4><div class="vbars">${['R', 'I', 'A', 'S', 'E', 'C'].map(k => `<div class="vb"><i style="--h:${st.dom[k] / maxDom * 100}%"></i><b>${st.dom[k]}</b><span>${k}</span></div>`).join('')}</div><p class="tiny muted">${esc(t('tch_n', { n: st.withR.length }))}</p></div></div>` : `<p class="muted tiny">${icon('info')} ${esc(t('tch_min'))}</p>`}
-      <details><summary>${esc(t('tch_part'))} (${n + pending.length})</summary><ul class="hist">${st.rows.map(x => `<li><span>${esc(x.u.nick)}</span>${x.status ? `<span class="${testsDone(x.d) || x.d.results.length ? 'chip-ok' : 'chip-warn'}">${esc(t('tch_tests_n', { n: testsDone(x.d) + (x.d.results.length ? 1 : 0) }))}</span>` : `<span class="muted tiny">${esc(t('tch_private'))}</span>`}</li>`).join('')}${pending.map(nk => `<li><span>${esc(nk)}</span><span class="muted tiny">${esc(t('tch_invited'))}</span><button class="tk-go" data-act="roster-del" data-code="${g.code}" data-n="${esc(nk)}" aria-label="${esc(t('delete'))}">${icon('trash-2')}</button></li>`).join('') || ''}</ul></details>
+      ${st.avg ? `<div class="res-grid"><div><h4>${esc(t('tch_dist'))}</h4>${R6.map(k => sbar(t('k_' + k) + ' — ' + t('avg'), st.avg[k])).join('')}</div>
+        <div><h4>${esc(t('tch_dom'))}</h4><div class="vbars">${R6.map(k => `<div class="vb"><i style="--h:${st.dom[k] / maxDom * 100}%"></i><b>${st.dom[k]}</b><span>${k}</span></div>`).join('')}</div><p class="tiny muted">${esc(t('tch_n', { n: st.aggN }))}</p></div></div>` : `<p class="muted tiny">${icon('info')} ${esc(t('tch_min'))}</p>`}
+      <details><summary>${esc(t('tch_part'))} (${n + pending.length})</summary><ul class="hist">${st.members.map(m => `<li><span>${esc(m.nickname)}</span>${m.shared ? `<span class="${(m.tests || []).length || m.express ? 'chip-ok' : 'chip-warn'}">${esc(t('tch_tests_n', { n: (m.tests || []).length + (m.express ? 1 : 0) }))}</span>` : `<span class="muted tiny">${esc(t('tch_private'))}</span>`}</li>`).join('')}${pending.map(nk => `<li><span>${esc(nk)}</span><span class="muted tiny">${esc(t('tch_invited'))}</span><button class="tk-go" data-act="roster-del" data-code="${g.code}" data-n="${esc(nk)}" aria-label="${esc(t('delete'))}">${icon('trash-2')}</button></li>`).join('')}</ul></details>
       <form class="inline-f" data-form="roster" data-code="${g.code}"><input id="r-${g.code}" maxlength="30" placeholder="${esc(t('tch_add_ph'))}" aria-label="${esc(t('tch_add'))}"><button class="btn btn-ghost btn-sm" type="submit">${icon('user-plus')} ${esc(t('tch_add'))}</button></form>
       <p class="tiny muted">${esc(t('tch_add_d'))}</p>
       <div class="cta-row"><button class="btn btn-ghost btn-sm" data-act="group-del2" data-code="${g.code}">${icon('trash-2')} ${esc(t('tch_delete_group'))}</button></div>
     </div>`;
   }
   function groupCsv(code) {
-    const g = H.S.get('nk_groups', {})[code]; const st = groupStats(code); const ok = st.withR.length >= 3;
+    const g = (teacherGroups() || []).find(x => x.code === code); const ov = overviewOf(code); if (!g || !ov) return '';
+    const st = stats(ov); const ok = !!st.avg;
     const rows = [['group', 'members', 'consenting_status', 'with_any_result', 'avg_tests_per_student', 'students_with_simulation']];
-    rows.push([g.name, st.rows.length, st.statusN, st.anyDone, st.avgTests, st.simUsers]);
+    rows.push([g.name, st.members.length, st.statusN, st.anyDone, st.avgTests, st.simUsers]);
     rows.push([]); rows.push(['assessment', 'completed']); NK.TESTS.forEach(x => rows.push([L(x.title), st.testDone[x.id]]));
-    rows.push([]); rows.push(['riasec_type', 'average_score', 'dominant_count']); ['R', 'I', 'A', 'S', 'E', 'C'].forEach(k => rows.push([k, ok ? st.avg[k] : 'n<3', ok ? st.dom[k] : 'n<3']));
+    rows.push([]); rows.push(['riasec_type', 'average_score', 'dominant_count']); R6.forEach(k => rows.push([k, ok ? st.avg[k] : 'n<3', ok ? st.dom[k] : 'n<3']));
     return rows.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n');
   }
-  F.group = () => { const name = $('#g-name').value.trim(); if (!name) return; const gs = H.S.get('nk_groups', {}); let code; do { code = Math.random().toString(36).slice(2, 8).toUpperCase(); } while (gs[code]); gs[code] = { code, name, owner: NK.App.uid, created: new Date().toISOString(), roster: [] }; H.S.set('nk_groups', gs); H.rerenderKeep(); H.toast(t('toast_saved')); };
-  F.roster = f => { const code = f.dataset.code; const v = $('#r-' + code).value.trim(); if (v.length < 2) return; const gs = H.S.get('nk_groups', {}); gs[code].roster = [...new Set((gs[code].roster || []).concat(v))]; H.S.set('nk_groups', gs); H.rerenderKeep(); H.toast(t('toast_saved')); };
-  A['roster-del'] = el => { const gs = H.S.get('nk_groups', {}); const g = gs[el.dataset.code]; g.roster = (g.roster || []).filter(x => x !== el.dataset.n); H.S.set('nk_groups', gs); H.rerenderKeep(); };
-  A.csv2 = el => { const csv = groupCsv(el.dataset.code); if (H.inFrame()) return showText('CSV', csv); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })); a.download = 'n-kell-' + el.dataset.code + '.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+  F.group = () => {
+    const name = $('#g-name').value.trim(); if (!name) return;
+    if (cloud()) return busy(async () => { await CL().createGroup(name); H.toast(t('toast_saved')); });
+    const gs = H.S.get('nk_groups', {}); let code; do { code = Math.random().toString(36).slice(2, 8).toUpperCase(); } while (gs[code]);
+    gs[code] = { code, name, owner: NK.App.uid, created: new Date().toISOString(), roster: [] }; H.S.set('nk_groups', gs); H.rerenderKeep(); H.toast(t('toast_saved'));
+  };
+  F.roster = f => {
+    const code = f.dataset.code; const v = $('#r-' + code).value.trim(); if (v.length < 2) return;
+    if (cloud()) { const g = CL().groups.find(x => x.code === code); return busy(async () => { await CL().updateRoster(code, [...new Set((g.roster || []).concat(v))]); H.toast(t('toast_saved')); }); }
+    const gs = H.S.get('nk_groups', {}); gs[code].roster = [...new Set((gs[code].roster || []).concat(v))]; H.S.set('nk_groups', gs); H.rerenderKeep(); H.toast(t('toast_saved'));
+  };
+  A['roster-del'] = el => {
+    const code = el.dataset.code, nk = el.dataset.n;
+    if (cloud()) { const g = CL().groups.find(x => x.code === code); return busy(() => CL().updateRoster(code, (g.roster || []).filter(x => x !== nk))); }
+    const gs = H.S.get('nk_groups', {}); const g = gs[code]; g.roster = (g.roster || []).filter(x => x !== nk); H.S.set('nk_groups', gs); H.rerenderKeep();
+  };
+  A['tch-refresh'] = el => busy(() => CL().loadOverview(el.dataset.code));
+  A.csv2 = el => { const csv = groupCsv(el.dataset.code); if (!csv) return; if (H.inFrame()) return showText('CSV', csv); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })); a.download = 'n-kell-' + el.dataset.code + '.csv'; document.body.appendChild(a); a.click(); a.remove(); };
   A['csv-copy2'] = el => showText('CSV', groupCsv(el.dataset.code));
-  A['group-del2'] = el => { const gs = H.S.get('nk_groups', {}); delete gs[el.dataset.code]; H.S.set('nk_groups', gs); const us = H.users(); Object.values(us).forEach(x => { if (x.group === el.dataset.code) delete x.group; }); H.S.set('nk_users', us); H.rerenderKeep(); };
+  A['group-del2'] = el => {
+    const code = el.dataset.code;
+    if (cloud()) return busy(() => CL().deleteGroup(code));
+    const gs = H.S.get('nk_groups', {}); delete gs[code]; H.S.set('nk_groups', gs); const us = H.users(); Object.values(us).forEach(x => { if (x.group === code) delete x.group; }); H.S.set('nk_users', us); H.rerenderKeep();
+  };
 
   NK.boot();
 })();

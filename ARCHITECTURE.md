@@ -1,6 +1,10 @@
 # N-KELL — architecture and backend readiness
 
-## Current state (demo)
+## Storage modes
+- **Cloud mode** (Supabase keys in `assets/config.js`): `assets/cloud.js` handles auth (email + password), per-user `user_data` (jsonb), groups and the privacy-preserving `group_overview()` RPC. Schema, RLS and functions: `supabase/schema.sql` (tested on PostgreSQL 16 with an auth stub). Setup: `supabase/SETUP.md`.
+- **Local mode** (empty config): everything below under "Local mode" applies.
+
+## Local mode
 - Static front end: HTML + CSS + vanilla JS, no build step. `python3 build.py` creates `dist/n-kell.html`.
 - **All data lives in the browser's localStorage** (`nk_users`, `nk_session`, `nk_groups`, `nk_data_<userId|guest>`).
   It is not cloud storage, it is not shared between devices, and the local password hash (FNV) is **not** secure authentication.
